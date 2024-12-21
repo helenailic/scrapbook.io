@@ -3,14 +3,15 @@ import * as THREE from 'three';
 import { gsap } from 'gsap';
 
 // Constants
-const COLORS = ['#9e4d14', '#FDEAD2', '#FDEAD2', '#FDEAD2', '#FDEAD2', '#9e4d14'];
-const CARD_DIMENSIONS = { width: 3.2, height: 4, radius: 0.2 };
+const COLORS = ['#9e4d14', '#9e4d14', '#faede4', '#faede4', '#faede4', '#9e4d14'];
+const CARD_DIMENSIONS = { width: 3.2, height: 3.9, radius: 0.2 };
 
 const styles = {
   container: {
     width: '100%',
     height: '100%',
-    background: 'linear-gradient(to right, #1a1a1a, #2d2d2d)'
+    background: 'pink',
+    display: 'flex'
   },
   buttonContainer: {
     position: 'fixed',
@@ -66,6 +67,15 @@ const BookViewer = () => {
 
     setupLighting(scene);
     setupCards(scene);
+
+    // Force material updates to ensure the initial colors are applied correctly
+    cardsRef.current.forEach((pageGroup) => {
+      const cardMesh = pageGroup.children[0]; // Access the card mesh
+      cardMesh.material.needsUpdate = true;  // Force update of the material
+    });
+  
+    // Render the scene once to ensure all initial states are applied
+    renderer.render(scene, camera);
     
     const animate = () => {
       requestAnimationFrame(animate);
@@ -104,9 +114,10 @@ const BookViewer = () => {
   };
 
   const setupLighting = (scene) => {
-    scene.add(new THREE.AmbientLight(0xffffff, 1));
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(0, 0, -5);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(50, 50, -50);
+    directionalLight.castShadow = true;
     scene.add(directionalLight);
   };
 
@@ -125,16 +136,15 @@ const BookViewer = () => {
       const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
       
       const pageGroup = new THREE.Group();
+
+      const material = new THREE.MeshStandardMaterial({
+        color: i === 0 || i === COLORS.length-1 ? '#9e4d14' : '#faf7f3',
+        roughness: 0,
+        metalness: 0,
+        side: THREE.DoubleSide
+      });
       
-      const card = new THREE.Mesh(
-        geometry,
-        new THREE.MeshStandardMaterial({
-          color,
-          roughness: 0.25,
-          metalness: 0,
-          side: THREE.DoubleSide
-        })
-      );
+      const card = new THREE.Mesh(geometry, material);
       
       // Position the card and rotate it to face the camera
       card.position.set(-CARD_DIMENSIONS.width, 0, 0);
@@ -165,12 +175,17 @@ const BookViewer = () => {
     const pageGroup = cardsRef.current[isNext ? currentPage : currentPage - 1];
 
     gsap.to(pageGroup.rotation, {
-      y: isNext ? -Math.PI : 0,  // Negative PI to flip towards camera
+      y: isNext ? -Math.PI : 0,
       duration: 0.8,
       ease: "power1.inOut",
       onComplete: () => {
         pageGroup.userData.isFlipped = isNext;
-        
+    
+        // Ensure color remains correct after flipping
+        const cardMesh = pageGroup.children[0];
+        const isEdgePage = pageGroup.userData.index === 0 || pageGroup.userData.index === cardsRef.current.length - 1;
+        //cardMesh.material.color.set(isEdgePage ? '#9e4d14' : '#FDEAD2');
+    
         gsap.to(pageGroup.position, {
           z: isNext ? 
             0.1 * (cardsRef.current.length + 1) : 
