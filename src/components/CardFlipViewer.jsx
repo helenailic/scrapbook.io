@@ -2,6 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { gsap } from 'gsap';
 
+// Constants
+const COLORS = ['#9e4d14', '#FDEAD2', '#FDEAD2', '#FDEAD2', '#FDEAD2', '#9e4d14'];
+const CARD_DIMENSIONS = { width: 3.2, height: 4, radius: 0.2 };
+
 const styles = {
   container: {
     width: '100%',
@@ -33,55 +37,81 @@ const styles = {
   }
 };
 
-const CardFlipViewer = () => {
+const createRoundedRectShape = ({ width, height, radius }) => {
+  const shape = new THREE.Shape();
+  
+  // Start from left edge (rounded), with straight spine on right
+  shape.moveTo(0, -height/2 + radius);  // Start from left side
+  shape.quadraticCurveTo(0, -height/2, radius, -height/2);  // Round bottom-left
+  shape.lineTo(width, -height/2);  // Straight line to bottom-right (spine)
+  shape.lineTo(width, height/2);  // Straight line up right side (spine)
+  shape.lineTo(radius, height/2);  // Line to top-left
+  shape.quadraticCurveTo(0, height/2, 0, height/2 - radius);  // Round top-left
+  shape.lineTo(0, -height/2 + radius);  // Line back to start
+  
+  return shape;
+};
+
+const BookViewer = () => {
   const mountRef = useRef(null);
   const cardsRef = useRef([]);
   const [isFlipping, setIsFlipping] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
 
   useEffect(() => {
-    // Scene setup
     const scene = new THREE.Scene();
-    const aspect = window.innerWidth / window.innerHeight;
-    const camera = new THREE.OrthographicCamera(
-      -2 * aspect, 2 * aspect,
-      2.5, -2,
-      0.1, 1000
-    );
-    camera.position.set(0, 0, -20);
-    camera.up.set(0, 1, 0);
-    camera.lookAt(0, 0, 0);
-
-    const renderer = new THREE.WebGLRenderer({ 
-      antialias: true,
-      alpha: true 
-    });
-    renderer.setClearColor(0x000000, 0);
-    renderer.setSize(window.innerWidth * 0.8, window.innerHeight * 0.8);
+    const camera = setupCamera();
+    const renderer = setupRenderer();
     mountRef.current.appendChild(renderer.domElement);
 
-    // Lighting
+    setupLighting(scene);
+    setupCards(scene);
+    
+    const animate = () => {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    const handleResize = () => {
+      const aspect = window.innerWidth / window.innerHeight;
+      camera.left = -5 * aspect;
+      camera.right = 5 * aspect;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth * 0.8, window.innerHeight * 0.8);
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      mountRef.current?.removeChild(renderer.domElement);
+    };
+  }, []);
+
+  const setupCamera = () => {
+    const aspect = window.innerWidth / window.innerHeight;
+    const camera = new THREE.OrthographicCamera(-2 * aspect, 2 * aspect, 2.5, -2, 0.1, 1000);
+    camera.position.set(0, 0, -10);
+    camera.lookAt(0, 0, 0);
+    return camera;
+  };
+
+  const setupRenderer = () => {
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setClearColor(0x000000, 0);
+    renderer.setSize(window.innerWidth * 0.8, window.innerHeight * 0.8);
+    return renderer;
+  };
+
+  const setupLighting = (scene) => {
     scene.add(new THREE.AmbientLight(0xffffff, 1));
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(5, 5, 5);
+    directionalLight.position.set(0, 0, -5);
     scene.add(directionalLight);
+  };
 
-    // Create rounded rectangle shape
-    const roundedRectShape = new THREE.Shape();
-    const width = 3;
-    const height = 4;
-    const radius = 0.2;
-
-    roundedRectShape.moveTo(-width/2 + radius, -height/2);
-    roundedRectShape.lineTo(width/2 - radius, -height/2);
-    roundedRectShape.quadraticCurveTo(width/2, -height/2, width/2, -height/2 + radius);
-    roundedRectShape.lineTo(width/2, height/2 - radius);
-    roundedRectShape.quadraticCurveTo(width/2, height/2, width/2 - radius, height/2);
-    roundedRectShape.lineTo(-width/2 + radius, height/2);
-    roundedRectShape.quadraticCurveTo(-width/2, height/2, -width/2, height/2 - radius);
-    roundedRectShape.lineTo(-width/2, -height/2 + radius);
-    roundedRectShape.quadraticCurveTo(-width/2, -height/2, -width/2 + radius, -height/2);
-
+  const setupCards = (scene) => {
+    const shape = createRoundedRectShape(CARD_DIMENSIONS);
     const extrudeSettings = {
       steps: 1,
       depth: 0.05,
@@ -91,117 +121,72 @@ const CardFlipViewer = () => {
       bevelSegments: 3
     };
 
-    // Create cards from top to bottom
-    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD', '#D4A5A5'];
-    const cards = [];
-    
-    for (let i = 0; i < colors.length; i++) {  
-      const geometry = new THREE.ExtrudeGeometry(roundedRectShape, extrudeSettings);
-      geometry.translate(1.5, 0, 0);
+    cardsRef.current = COLORS.map((color, i) => {
+      const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
       
-      const material = new THREE.MeshStandardMaterial({
-        color: colors[i],
-        roughness: 0.4,
-        metalness: 0.1
-      });
+      const pageGroup = new THREE.Group();
       
-      const card = new THREE.Mesh(geometry, material);
-      card.position.set(0, 0, (colors.length - 1 - i) * 0.1);  // Reverse the stacking order
-      card.rotation.y = 0;
+      const card = new THREE.Mesh(
+        geometry,
+        new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.25,
+          metalness: 0,
+          side: THREE.DoubleSide
+        })
+      );
       
-      cards.unshift(card);  // Add to front of array
-      scene.add(card);
-    }
-    
-    cardsRef.current = cards;
-    console.log('Total cards created:', cards.length);
-
-    // Animation loop
-    const animate = () => {
-      requestAnimationFrame(animate);
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    // Handle resize
-    const handleResize = () => {
-      const aspect = window.innerWidth / window.innerHeight;
-      camera.left = -5 * aspect;
-      camera.right = 5 * aspect;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth * 0.8, window.innerHeight * 0.8);
-    };
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      mountRef.current?.removeChild(renderer.domElement);
-    };
-  }, []);
-
-  const handleNextClick = () => {
-    if (isFlipping || currentPage >= cardsRef.current.length) {
-      console.log('Cannot flip: isFlipping=', isFlipping, 'currentPage=', currentPage);
-      return;
-    }
-    
-    console.log('Flipping card at index:', currentPage);
-    setIsFlipping(true);
-    const card = cardsRef.current[currentPage];
-    
-    gsap.to(card.rotation, {
-      y: Math.PI,
-      duration: 1,
-      onComplete: () => {
-        console.log('Flip complete, new rotation:', card.rotation.y);
-        setIsFlipping(false);
-        setCurrentPage(prev => prev + 1);
-      }
+      // Position the card and rotate it to face the camera
+      card.position.set(-CARD_DIMENSIONS.width, 0, 0);
+      card.rotation.x = Math.PI; // Rotate 180 degrees to face camera
+      pageGroup.add(card);
+      
+      // Position the page group with spine at center (x=0)
+      pageGroup.position.set(-1, 0, 0.1 * i);
+      
+      pageGroup.userData = { 
+        index: i,
+        isFlipped: false
+      };
+      
+      scene.add(pageGroup);
+      return pageGroup;
     });
   };
 
-  const handlePrevClick = () => {
-    console.log('Prev clicked, currentPage:', currentPage);
-    
-    if (isFlipping || currentPage <= 0) {
-      console.log('Cannot flip back: isFlipping=', isFlipping, 'currentPage=', currentPage);
+  const flipPage = (isNext) => {
+    if (isFlipping || 
+        (isNext && currentPage >= cardsRef.current.length - 1) || 
+        (!isNext && currentPage <= 0)) {
       return;
     }
 
-    console.log('Flipping back card at index:', currentPage - 1);
     setIsFlipping(true);
-    const card = cardsRef.current[currentPage - 1];
-    
-    gsap.to(card.rotation, {
-      y: 0,
-      duration: 1,
+    const pageGroup = cardsRef.current[isNext ? currentPage : currentPage - 1];
+
+    gsap.to(pageGroup.rotation, {
+      y: isNext ? -Math.PI : 0,  // Negative PI to flip towards camera
+      duration: 0.8,
+      ease: "power1.inOut",
       onComplete: () => {
-        console.log('Flip back complete, new rotation:', card.rotation.y);
-        setIsFlipping(false);
-        setCurrentPage(prev => prev - 1);
+        pageGroup.userData.isFlipped = isNext;
+        
+        gsap.to(pageGroup.position, {
+          z: isNext ? 
+            0.1 * (cardsRef.current.length + 1) : 
+            0.1 * pageGroup.userData.index,
+          duration: 0.1,
+          onComplete: () => {
+            setCurrentPage(prev => isNext ? prev + 1 : prev - 1);
+            setIsFlipping(false);
+          }
+        });
       }
     });
   };
 
   return (
     <div style={styles.container}>
-      <div style={{ 
-        position: 'fixed', 
-        top: '1rem', 
-        left: '1rem', 
-        color: 'white',
-        background: 'rgba(0,0,0,0.7)',
-        padding: '1rem',
-        borderRadius: '0.5rem',
-        fontFamily: 'monospace'
-      }}>
-        <div>Current Page: {currentPage}</div>
-        <div>Is Flipping: {isFlipping.toString()}</div>
-        <div>Total Cards: {cardsRef.current.length}</div>
-        <div>Card Rotations: {cardsRef.current.map((card, i) => (
-          <div key={i}>Card {i}: {card.rotation.y.toFixed(2)}</div>
-        ))}</div>
-      </div>
       <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
       <div style={styles.buttonContainer}>
         <button
@@ -209,7 +194,7 @@ const CardFlipViewer = () => {
             ...styles.button,
             ...(isFlipping || currentPage === 0 ? styles.buttonDisabled : {})
           }}
-          onClick={handlePrevClick}
+          onClick={() => flipPage(false)}
           disabled={isFlipping || currentPage === 0}
         >
           Previous
@@ -219,7 +204,7 @@ const CardFlipViewer = () => {
             ...styles.button,
             ...(isFlipping || currentPage === cardsRef.current.length - 1 ? styles.buttonDisabled : {})
           }}
-          onClick={handleNextClick}
+          onClick={() => flipPage(true)}
           disabled={isFlipping || currentPage === cardsRef.current.length - 1}
         >
           Next
@@ -229,4 +214,4 @@ const CardFlipViewer = () => {
   );
 };
 
-export default CardFlipViewer;
+export default BookViewer;
